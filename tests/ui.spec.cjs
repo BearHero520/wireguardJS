@@ -36,7 +36,7 @@ test("read failure does not erase the editor", async ({ page }) => {
 });
 test("invalid IPv6 config never uploads", async ({ page }) => {
   const config = await page.locator(editor).inputValue();
-  await page.locator(editor).fill(config.replace("AllowedIPs = 0.0.0.0/0", "AllowedIPs = ::/0"));
+  await page.locator(editor).fill(config.replace("AllowedIPs = 0.0.0.0/0", "AllowedIPs = ::/129"));
   await page.locator('[data-action="save"]').click();
   await expect(page.locator("#wg-feedback")).toHaveText(/IPv4/);
   expect(await page.evaluate(() => previewDevice.uploaded)).toBe("");
@@ -45,6 +45,23 @@ test("cancel uninstall leaves the installed device unchanged", async ({ page }) 
   await page.locator('[data-action="uninstall"]').click();
   await page.getByRole("dialog").getByRole("button", { name: "取消" }).click();
   expect(await page.evaluate(() => previewDevice.installed)).toBe(true);
+});
+test("accepts and saves a complete dual-stack configuration", async ({ page }) => {
+  const config = await page.locator(editor).inputValue();
+  const dual = config.replace("Address = 10.0.0.2/24", "Address = 10.6.0.2/32, fd00:6::2/128").replace("AllowedIPs = 0.0.0.0/0", "AllowedIPs = 0.0.0.0/0, ::/0");
+  await page.locator(editor).fill(dual);
+  await page.locator('[data-action="save"]').click();
+  await expect(page.locator("#wg-feedback")).toHaveText(/配置已保存/);
+  expect(await page.evaluate(() => previewDevice.config)).toContain("fd00:6::2/128");
+  expect(await page.evaluate(() => previewDevice.config)).toContain("0.0.0.0/0, ::/0");
+});
+test("old device resources must be upgraded before saving new configurations", async ({ page }) => {
+  await page.evaluate(() => { previewDevice.version = "2.0.0"; });
+  await page.locator('[data-action="refresh"]').click();
+  await expect(page.locator("#Wireguard_embedded_status_badge")).toHaveText(/资源待升级/);
+  await page.locator('[data-action="save"]').click();
+  await expect(page.locator("#wg-feedback")).toHaveText(/安装 \/ 升级/);
+  expect(await page.evaluate(() => previewDevice.uploaded)).toBe("");
 });
 for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
   test(`layout and diagnostics at ${viewport.width}px`, async ({ page }) => {

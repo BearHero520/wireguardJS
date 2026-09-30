@@ -18,14 +18,23 @@ finish_install() {
     result=$?
     trap - EXIT
     if [ "$result" -ne 0 ]; then
-        if [ "$swapped" -eq 1 ] && [ -d "$PREVIOUS" ]; then
-            rm -rf "$ROOT"
-            mv "$PREVIOUS" "$ROOT"
-        elif [ "$installed_new" -eq 1 ]; then
-            rm -rf "$ROOT"
+        rollback_safe=1
+        if [ "$installed_new" -eq 1 ]; then
+            if ! sh "$ROOT/scripts/run.sh" stop; then
+                rollback_safe=0
+                echo 'Rollback paused: network cleanup failed. Current state and previous resources were preserved; retry stop before reinstalling.'
+            fi
         fi
-        if [ "$was_running" -eq 1 ] && [ -f "$ROOT/service.sh" ]; then
-            sh "$ROOT/service.sh" >/dev/null 2>&1 || echo 'Rollback restart failed; check the device log.'
+        if [ "$rollback_safe" -eq 1 ]; then
+            if [ "$swapped" -eq 1 ] && [ -d "$PREVIOUS" ]; then
+                rm -rf "$ROOT"
+                mv "$PREVIOUS" "$ROOT"
+            elif [ "$installed_new" -eq 1 ]; then
+                rm -rf "$ROOT"
+            fi
+            if [ "$was_running" -eq 1 ] && [ -f "$ROOT/service.sh" ]; then
+                sh "$ROOT/service.sh" >/dev/null 2>&1 || echo 'Rollback restart failed; check the device log.'
+            fi
         fi
     fi
     rm -rf "$STAGE"
@@ -48,7 +57,7 @@ fi
 mkdir -m 700 "$STAGE"
 tar -xzf "$PKG" -C "$STAGE"
 NEW="$STAGE/wg_res"
-for required in service.sh wg0.conf scripts/run.sh scripts/common.sh scripts/manage.sh scripts/validate.awk bin/wg VERSION; do
+for required in service.sh wg0.conf scripts/run.sh scripts/common.sh scripts/network.sh scripts/manage.sh scripts/validate.awk bin/wg VERSION; do
     [ -f "$NEW/$required" ] || { echo "Missing resource: $required"; exit 1; }
 done
 find "$NEW" -type d -exec chmod 700 {} \;

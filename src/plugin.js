@@ -6,7 +6,7 @@ const ID = "IFRAME_KANO_Wireguard_Embedded";
 const COLLAPSE = "#collapse_Wireguard_Embedded";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const quote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
-const state = { busy: false, polling: false, pendingRefresh: false, timer: null, open: false, installed: false, running: false, boot: false, loaded: false, saved: "", view: "logs", generation: 0, auto: true };
+const state = { busy: false, polling: false, pendingRefresh: false, timer: null, open: false, installed: false, version: "", running: false, boot: false, loaded: false, saved: "", view: "logs", generation: 0, auto: true };
 
 if (typeof runShellWithRoot !== "function" || typeof createToast !== "function") {
   console.error("WireGuard: this plugin requires the KANO device management page.");
@@ -206,6 +206,7 @@ else busybox base64 -d ${quote(base64)} > ${quote(archive)}; fi
 }
 
 async function saveConfig() {
+  if (state.version !== VERSION) throw new Error(`设备资源为 v${state.version || "未知"}，请先点击“安装 / 升级”更新至 v${VERSION}。`);
   const validation = checkConfig();
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
   if (typeof KANO_baseURL === "undefined" || typeof common_headers === "undefined") throw new Error("管理页面缺少上传接口。");
@@ -289,9 +290,11 @@ if [ -f ${quote(BOOT)} ] && grep -qxF ${quote(BOOT_LINE)} ${quote(BOOT)}; then e
     if (generation !== state.generation || state.busy) return;
     state.installed = /^INSTALLED=1$/m.test(status); state.running = /^RUNNING=1$/m.test(status); state.boot = /^BOOT=1$/m.test(status);
     const installedVersion = /^VERSION=(.*)$/m.exec(status)?.[1];
+    state.version = installedVersion || "";
     const handshake = Number(/^HANDSHAKE=(\d+)$/m.exec(status)?.[1] || 0);
     const recentHandshake = handshake > 0 && Date.now() / 1000 - handshake < 180;
     badge.textContent = state.running ? (recentHandshake ? "运行中 · 最近已握手" : handshake ? "运行中 · 握手较早" : "运行中 · 等待握手") : state.installed ? "已停止" : /^PRESENT=1$/m.test(status) ? "旧版资源 · 请升级" : "未安装";
+    if (state.installed && state.version !== VERSION) badge.textContent += " · 资源待升级";
     badge.dataset.state = state.running ? "running" : "stopped";
     badge.title = installedVersion ? `设备资源 v${installedVersion}` : "";
     syncControls();

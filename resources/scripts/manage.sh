@@ -85,13 +85,20 @@ case "${1:-}" in
         printf '\nArchitecture: '; uname -m
         printf '\nIdentity: '; id
         printf '\nTools:\n'
-        for tool in ip iptables awk tar base64 sha256sum; do command -v "$tool" || true; done
+        for tool in ip iptables ip6tables awk tar base64 sha256sum; do command -v "$tool" || true; done
         printf '\nWireGuard executable:\n'; "$MODULE_DIR/bin/wg" --version 2>&1
         printf '\nInterfaces:\n'; ip -brief address 2>/dev/null || ip address
         printf '\nWireGuard (private keys hidden):\n'; "$MODULE_DIR/bin/wg" show wg0 2>&1
         printf '\nPolicy rules:\n'; ip rule show
+        printf '\nIPv6 policy rules:\n'; ip -6 rule show
         printf '\nTable 101:\n'; ip route show table 101
+        printf '\nIPv6 table 101:\n'; ip -6 route show table 101
         printf '\nOwned DNS chain:\n'; iptables -t nat -S KANO_DNS_wg0 2>/dev/null
+        printf '\nIPv6 DNS chain:\n'; ip6tables -t nat -S KANO_DNS_wg0 2>/dev/null
+        printf '\nIPv6 forwarding and RA:\n'
+        for setting in /proc/sys/net/ipv6/conf/*/forwarding /proc/sys/net/ipv6/conf/*/accept_ra; do
+            if [ -f "$setting" ]; then printf '%s=' "$setting"; cat "$setting"; fi
+        done
         printf '\nConfiguration check:\n'; sh "$SCRIPT_DIR/run.sh" check
         ;;
     *) echo 'Usage: manage.sh save PATH|backup|restore|boot-on|boot-off|uninstall|diagnostics'; exit 1 ;;
