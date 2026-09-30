@@ -16,7 +16,11 @@ const mock = `#!/bin/sh
 name="\${0##*/}"
 printf '%s %s\\n' "$name" "$*" >> "$WG_TEST_DIR/trace"
 if [ -n "$WG_TEST_FAIL" ]; then
-  case "$name $*" in *"$WG_TEST_FAIL"*) exit 1 ;; esac
+  case "$name $*" in
+    *"$WG_TEST_FAIL"*)
+      [ -z "$WG_TEST_FAIL_STDERR" ] || printf '%s\\n' "$WG_TEST_FAIL_STDERR" >&2
+      exit 1 ;;
+  esac
 fi
 add_record() {
   record_file="$WG_TEST_DIR/$1"
@@ -177,7 +181,10 @@ function sandbox(t) {
       .replaceAll("/proc/sys/net/ipv6", `${dir}/proc/net/ipv6`));
   }
   const mockPath = process.platform === "win32" ? `$(cygpath -u '${dir}/mock')` : `${dir}/mock`;
-  const invoke = (script, fail = "") => spawnSync(bash, ["-c", `export PATH="${mockPath}"; ${script}`], { encoding: "utf8", timeout: 60000, env: { ...process.env, WG_TEST_DIR: dir, WG_TEST_FAIL: fail, KANO_WG_LOCKED: "" } });
+  const invoke = (script, fail = "") => {
+    const fault = typeof fail === "string" ? { match: fail } : fail;
+    return spawnSync(bash, ["-c", `export PATH="${mockPath}"; ${script}`], { encoding: "utf8", timeout: 60000, env: { ...process.env, WG_TEST_DIR: dir, WG_TEST_FAIL: fault.match, WG_TEST_FAIL_STDERR: fault.stderr || "", KANO_WG_LOCKED: "" } });
+  };
   const execute = (command, fail = "", holdLock = false) => invoke(`${holdLock ? `printf '%s\\n' "$$" > '${dir}/lock/pid';` : ""} sh '${run}' ${command}`, fail);
   const manage = `${dir}/module/scripts/manage.sh`;
   fs.writeFileSync(manage, fs.readFileSync(manage, "utf8").replace("/sdcard/ufi_tools_boot.sh", `${dir}/boot.sh`).replace("/data/data/com.minikano.f50_sms/files/", `${dir}/uploads/`));
@@ -334,6 +341,58 @@ test("NAT=false without DNS does not install any source NAT", (t) => {
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.doesNotMatch(s.networkState().rules, /MASQUERADE|KANO_DNS_SRC/);
   assert.doesNotMatch(s.trace(), / -(?:A|I) [^\n]*-j MASQUERADE\n/);
+  assert.equal(s.execute("stop").status, 0);
+  assertNetworkClean(s);
+});
+test("NAT6=false keeps IPv4 NAT and dual-stack routing working without the IPv6 NAT table", (t) => {
+  const s = sandbox(t);
+  const fault = { match: "ip6tables -t nat", stderr: "ip6tables: cannot initialize nat table: Table does not exist" };
+  fs.writeFileSync(`${s.dir}/module/wg0.conf`, dualStackFixture
+    .replace("LANInterface = br0", "LANInterface = br0\nNAT = true\nNAT6 = false")
+    .replace("DNS = 10.6.0.1, fd86:5a72:3ff1:111::1", "DNS = 10.6.0.1"));
+  const result = s.execute("start", fault);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const state = s.networkState();
+  assert.ok(state.rules.includes("iptables|nat|POSTROUTING|-o wg0 -j MASQUERADE"));
+  assert.ok(state.rules.includes("ip6tables|filter|FORWARD|-i br0 -o wg0 -j ACCEPT"));
+  assert.match(state.policies, /^6\|fwmark 2 table 101 priority 100$/m);
+  assert.match(state.routes, /^6\|::\/0 dev wg0 table 101$/m);
+  assert.doesNotMatch(state.rules + state.chains, /^ip6tables\|nat\|/m);
+  assert.doesNotMatch(fs.readFileSync(`${s.dir}/setconf`, "utf8"), /^(NAT|NAT6)\s*=/m);
+  const stopped = s.execute("stop", fault);
+  assert.equal(stopped.status, 0, stopped.stdout + stopped.stderr);
+  assertNetworkClean(s);
+});
+test("NAT6=false with IPv6 DNS still requires IPv6 NAT and preserves the active tunnel on failure", (t) => {
+  const s = sandbox(t);
+  assert.equal(s.execute("start").status, 0);
+  const activeState = s.networkState();
+  fs.writeFileSync(`${s.dir}/module/wg0.conf`, dualStackFixture.replace("LANInterface = br0", "LANInterface = br0\nNAT = true\nNAT6 = false"));
+  fs.writeFileSync(`${s.dir}/trace`, "");
+  const result = s.execute("restart", {
+    match: "ip6tables -t nat",
+    stderr: "ip6tables: cannot initialize nat table: Table does not exist\n" + "x".repeat(8192)
+  });
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Table does not exist/);
+  assert.match(result.stdout, /DNS/);
+  assert.doesNotMatch(result.stdout + result.stderr, /x{2048}/);
+  assert.deepEqual(s.networkState(), activeState);
+  assert.equal(fs.existsSync(`${s.dir}/up`), true);
+  assert.equal(fs.readFileSync(`${s.dir}/module/.state/active.conf`, "utf8"), fixture);
+  assert.doesNotMatch(s.trace(), /ip link del wg0/);
+});
+test("NAT6=true overrides NAT=false for IPv6 only", (t) => {
+  const s = sandbox(t);
+  fs.writeFileSync(`${s.dir}/module/wg0.conf`, dualStackFixture
+    .replace("LANInterface = br0", "LANInterface = br0\nNAT = false\nNAT6 = true")
+    .replace(/^DNS = .*\n/m, ""));
+  const result = s.execute("start");
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const { rules } = s.networkState();
+  assert.ok(rules.includes("ip6tables|nat|POSTROUTING|-o wg0 -j MASQUERADE"));
+  assert.doesNotMatch(rules, /^iptables\|.*MASQUERADE/m);
+  assert.ok(rules.includes("iptables|filter|FORWARD|-i br0 -o wg0 -j ACCEPT"));
   assert.equal(s.execute("stop").status, 0);
   assertNetworkClean(s);
 });

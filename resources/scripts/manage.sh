@@ -86,6 +86,13 @@ case "${1:-}" in
         printf '\nIdentity: '; id
         printf '\nTools:\n'
         for tool in ip iptables ip6tables awk tar base64 sha256sum; do command -v "$tool" || true; done
+        printf '\nIPv6 firewall version:\n'; ip6tables --version 2>&1
+        printf '\nIPv6 registered tables:\n'; cat /proc/net/ip6_tables_names 2>&1
+        printf '\nIPv6 NAT capability (read-only):\n'; ip6tables -t nat -S 2>&1
+        if [ -r /proc/config.gz ]; then
+            printf '\nIPv6 kernel capabilities:\n'
+            zcat /proc/config.gz 2>/dev/null | awk '/^(# )?CONFIG_(IPV6|IPV6_MULTIPLE_TABLES|IP6_NF_IPTABLES|IP6_NF_FILTER|IP6_NF_MANGLE|IP6_NF_NAT|NF_NAT|NF_TABLES|WIREGUARD)(=| )/'
+        fi
         printf '\nWireGuard executable:\n'; "$MODULE_DIR/bin/wg" --version 2>&1
         printf '\nInterfaces:\n'; ip -brief address 2>/dev/null || ip address
         printf '\nWireGuard (private keys hidden):\n'; "$MODULE_DIR/bin/wg" show wg0 2>&1

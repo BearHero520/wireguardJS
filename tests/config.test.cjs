@@ -37,6 +37,30 @@ test("accepts dual-stack and IPv6-only tunnel configurations in both validators"
   assertBoth(dual.replace("DNS = 10.6.0.1", "DNS = 10.6.0.1, fd86:5a72:3ff1:111::1"), true, "dual DNS");
   assertBoth("\uFEFF" + dual.replaceAll("\n", "\r\n"), true, "BOM and CRLF");
 });
+test("NAT6 accepts the same boolean values as NAT and permits IPv6 DNS", () => {
+  for (const value of ["true", "false", "0", "1", "yes", "no", "TRUE", "False", "YeS", "NO"]) {
+    assertBoth(dual.replace("LANInterface = br0", `LANInterface = br0\nNAT6 = ${value}`), true, `NAT6=${value}`);
+  }
+  assertBoth(ipv6Only.replace("LANInterface = br0", "LANInterface = br0\nNAT6 = false"), true, "IPv6 DNS with IPv6 NAT disabled");
+  assertBoth(valid.replace("LANInterface = br0", "LANInterface = br0\nNAT6 = false"), true, "IPv4-only with unused IPv6 override");
+});
+test("NAT6 rejects invalid values, duplicate settings, and placement in Peer", () => {
+  for (const value of ["", "enabled", "2", "-1", "truefalse", "true,false"]) {
+    assertBoth(dual.replace("LANInterface = br0", `LANInterface = br0\nNAT6 = ${value}`), false, `NAT6=${value}`);
+  }
+  assertBoth(dual.replace("LANInterface = br0", "LANInterface = br0\nNAT6 = true\nNAT6 = false"), false, "duplicate NAT6");
+  assertBoth(dual + "NAT6 = false\n", false, "NAT6 in Peer");
+});
+test("IPv6 routed mode warning follows NAT6 override and NAT inheritance", () => {
+  for (const [settings, expected] of [["", false], ["NAT = false\n", true], ["NAT = 0\n", true], ["NAT = false\nNAT6 = true\n", false], ["NAT = true\nNAT6 = false\n", true], ["NAT = no\nNAT6 = YeS\n", false], ["NAT6 = NO\n", true]]) {
+    const source = dual.replace("LANInterface = br0", settings + "LANInterface = br0");
+    assertBoth(source, true, settings || "defaults");
+    const warnings = validate(source).warnings;
+    assert.equal(warnings.some((warning) => warning.includes("IPv6 NAT")), expected, settings || "defaults");
+    if (expected) assert.match(warnings.join(" "), /AllowedIPs.*LAN IPv6/);
+  }
+  assert.equal(validate(valid.replace("LANInterface = br0", "NAT6 = false\nLANInterface = br0")).warnings.some((warning) => warning.includes("IPv6 NAT")), false);
+});
 test("IPv6 parsing accepts compression, expanded words and IPv4 tails", () => {
   for (const value of ["::", "::1", "2001:DB8:0:1::2", "2001:db8:0000:0001:0000:0000:0000:0002", "::ffff:192.0.2.1", "2001:db8:0:0:0:0:192.0.2.1"]) {
     assert.equal(ipv6(value), true, value);

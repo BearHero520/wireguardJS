@@ -79,7 +79,7 @@ build_setconf_file() {
             line = $0
             if (NR == 1) sub(/^\357\273\277/, "", line)
             sub(/[;#].*$/, "", line)
-            if (line ~ /^[[:space:]]*(Address|DNS|MTU|NAT|LANInterface)[[:space:]]*=/) next
+            if (line ~ /^[[:space:]]*(Address|DNS|MTU|NAT|NAT6|LANInterface)[[:space:]]*=/) next
             print line
         }
     ' "$CONF_FILE" > "$tmp_file" || return 1

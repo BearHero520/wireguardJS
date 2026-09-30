@@ -33,12 +33,17 @@ enabled_families() {
     done
 }
 
-is_nat_enabled() {
-    case "$(interface_values NAT | tr 'A-Z' 'a-z')" in
+is_nat_enabled() (
+    value="$(interface_values NAT)"
+    if [ "$1" = 6 ]; then
+        override="$(interface_values NAT6)"
+        [ -z "$override" ] || value="$override"
+    fi
+    case "$(printf '%s' "$value" | tr 'A-Z' 'a-z')" in
         false|0|no) return 1 ;;
         *) return 0 ;;
     esac
-}
+)
 
 preflight_family() (
     family="$1"
@@ -65,19 +70,32 @@ preflight_family() (
     family_firewall "$family" -t mangle -N "$probe" >/dev/null 2>&1 || return 1
     family_firewall "$family" -t mangle -A "$probe" -j MARK --set-mark "$WG_ROUTE_MARK" >/dev/null 2>&1 || { log "IPv$family MARK extension is unavailable"; return 1; }
     dns="$(family_dns "$family")"
-    if is_nat_enabled || [ -n "$dns" ]; then
-        family_firewall "$family" -t nat -N "$probe" >/dev/null 2>&1 || { log "IPv$family NAT table is unavailable"; return 1; }
+    if is_nat_enabled "$family" || [ -n "$dns" ]; then
+        if nat_error="$(family_firewall "$family" -t nat -N "$probe" 2>&1)"; then
+            :
+        else
+            status=$?
+            log "IPv$family NAT table is unavailable (exit $status)"
+            [ -z "$nat_error" ] || log "$(printf '%s' "$nat_error" | head -c 1024)"
+            if [ "$family" = 6 ]; then
+                log 'NAT6=false preserves IPv4 NAT but requires server Peer AllowedIPs and return routes for the LAN IPv6 prefix, plus a usable IPv6 egress.'
+                if [ -n "$dns" ]; then log 'IPv6 DNS still requires the IPv6 NAT table; use IPv4 DNS only for routed mode without IPv6 NAT.'; fi
+            fi
+            return 1
+        fi
         nat_created=1
-        if is_nat_enabled; then
+        if is_nat_enabled "$family"; then
+            option=NAT
+            [ "$family" != 6 ] || option=NAT6
             family_firewall "$family" -t nat -A "$probe" -o "$INTERFACE_NAME" -j MASQUERADE >/dev/null 2>&1 || {
-                log "IPv$family MASQUERADE is unavailable; NAT=false requires a server route to the LAN prefix"; return 1;
+                log "IPv$family MASQUERADE is unavailable; $option=false requires a server route to the LAN prefix and a usable egress"; return 1;
             }
         fi
         if [ -n "$dns" ]; then
             family_firewall "$family" -t nat -A "$probe" -p udp --dport 53 -j DNAT --to-destination "$dns" >/dev/null 2>&1 || {
                 log "IPv$family DNS DNAT is unavailable"; return 1;
             }
-            if ! is_nat_enabled; then
+            if ! is_nat_enabled "$family"; then
                 family_firewall "$family" -t nat -A "$probe" -o "$INTERFACE_NAME" -d "$dns" -p udp --dport 53 -m owner --socket-exists -j MASQUERADE >/dev/null 2>&1 || {
                     log "IPv$family local DNS source NAT is unavailable (owner/MASQUERADE)"; return 1;
                 }
@@ -194,9 +212,10 @@ enable_lan_family() (
     fi
     family_firewall "$family" -I FORWARD -i "$LAN_IF" -o "$INTERFACE_NAME" -j ACCEPT >/dev/null 2>&1 || return 1
     family_firewall "$family" -I FORWARD -i "$INTERFACE_NAME" -o "$LAN_IF" -m state --state ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
-    if is_nat_enabled; then
+    if is_nat_enabled "$family"; then
         family_firewall "$family" -t nat -I POSTROUTING -o "$INTERFACE_NAME" -j MASQUERADE >/dev/null 2>&1 || return 1
     else
+        if [ "$family" = 6 ]; then log 'IPv6 routed mode: server Peer AllowedIPs and return routes must include the LAN IPv6 prefix, with a usable IPv6 egress.'; fi
         family_firewall "$family" -I FORWARD -i "$INTERFACE_NAME" -o "$LAN_IF" -j ACCEPT >/dev/null 2>&1 || return 1
     fi
 )
@@ -210,7 +229,7 @@ apply_dns_family() (
     family_firewall "$family" -t mangle -A "$WG_DNS_MARK_CHAIN" -j MARK --set-mark "$WG_ROUTE_MARK" >/dev/null 2>&1 || return 1
     family_firewall "$family" -t nat -N "$WG_DNS_CHAIN" >/dev/null 2>&1 || return 1
     family_firewall "$family" -t nat -A "$WG_DNS_CHAIN" -d "$dns" -j RETURN >/dev/null 2>&1 || return 1
-    if ! is_nat_enabled; then
+    if ! is_nat_enabled "$family"; then
         # OUTPUT rerouting retains the uplink source; translate local DNS only.
         family_firewall "$family" -t nat -N "$WG_DNS_SRC_CHAIN" >/dev/null 2>&1 || return 1
         family_firewall "$family" -t nat -I POSTROUTING -o "$INTERFACE_NAME" -j "$WG_DNS_SRC_CHAIN" >/dev/null 2>&1 || return 1
@@ -221,7 +240,7 @@ apply_dns_family() (
         family_firewall "$family" -t nat -A "$WG_DNS_CHAIN" -p "$protocol" --dport 53 -j DNAT --to-destination "$dns" >/dev/null 2>&1 || return 1
         family_firewall "$family" -t nat -I PREROUTING 1 -i "$LAN_IF" -p "$protocol" --dport 53 -j "$WG_DNS_CHAIN" >/dev/null 2>&1 || return 1
         family_firewall "$family" -t nat -I OUTPUT 1 -p "$protocol" --dport 53 -j "$WG_DNS_CHAIN" >/dev/null 2>&1 || return 1
-        if ! is_nat_enabled; then
+        if ! is_nat_enabled "$family"; then
             family_firewall "$family" -t nat -A "$WG_DNS_SRC_CHAIN" -d "$dns" -p "$protocol" --dport 53 -m owner --socket-exists -j MASQUERADE >/dev/null 2>&1 || return 1
         fi
     done
@@ -298,7 +317,7 @@ cleanup_family() (
                 failed=1
             fi
         elif [ "$required" = 1 ]; then
-            if [ "$table" != nat ] || is_nat_enabled || [ -n "$dns" ]; then
+            if [ "$table" != nat ] || is_nat_enabled "$family" || [ -n "$dns" ]; then
                 log "IPv$family $table cleanup could not be verified"
                 failed=1
             fi

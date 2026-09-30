@@ -1,13 +1,13 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.1",
   "resources": {
     "file": "wireguard-resources.tar.gz",
-    "sha256": "9ec94075ebc2b5010ad70b9d167b460d0c5c25f3f810a08ce90384bbc571dbf7",
-    "bytes": 53556
+    "sha256": "c323cdc64c38257cf22f95a8efce98c3ed8522482853c3a2ebd02107df5e5335",
+    "bytes": 54005
   },
   "plugin": {
     "file": "wireguard.js",
-    "sha256": "ef405fece6cd9af9bc6c23b061a172c28cab71f39b62bf857c4c49f25eee950d"
+    "sha256": "d1b1f75aa636655a27a85bb17f5d9e7bf9e44dfee99c0929a269b1fbc945236f"
   },
   "wgBinary": {
     "origin": "Original user-provided wireguard.js bundle; upstream source and build provenance unverified",

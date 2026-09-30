@@ -132,7 +132,7 @@ function endpoint(value, parts, bytes, host, port, closing, count, i) {
         else if (name == "LANInterface") { if (length(value) > 15 || value !~ /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/) fail("invalid LANInterface") }
         else if (name == "MTU") { mtu = value; mtu_set = 1; if (value !~ /^[0-9]+$/ || value + 0 < 576 || value + 0 > 9000) fail("invalid MTU") }
         else if (name == "ListenPort") { if (value !~ /^(0|[1-9][0-9]*)$/ || value + 0 > 65535) fail("invalid ListenPort") }
-        else if (name == "NAT") { if (tolower(value) !~ /^(true|false|0|1|yes|no)$/) fail("invalid NAT") }
+        else if (name == "NAT" || name == "NAT6") { if (tolower(value) !~ /^(true|false|0|1|yes|no)$/) fail("invalid " name) }
         else fail("unsupported Interface field " name)
     } else {
         if (name == "PublicKey") {

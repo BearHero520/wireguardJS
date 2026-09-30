@@ -2,7 +2,7 @@
 const sampleKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(1)));
 const peerKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(2)));
 const exampleConfig = `[Interface]\nPrivateKey = ${sampleKey}\nAddress = 10.0.0.2/24\nDNS = 1.1.1.1\nNAT = true\nLANInterface = br0\n\n[Peer]\nPublicKey = ${peerKey}\nEndpoint = vpn.example.com:51820\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25\n`;
-window.previewDevice = { installed: true, version: "2.1.0", running: false, boot: false, config: exampleConfig, backup: exampleConfig, failSave: false, failRead: false, uploaded: "", calls: [], active: 0, maxActive: 0 };
+window.previewDevice = { installed: true, version: "2.1.1", running: false, boot: false, config: exampleConfig, backup: exampleConfig, failSave: false, failRead: false, uploaded: "", calls: [], active: 0, maxActive: 0 };
 const KANO_baseURL = "https://preview.invalid";
 const common_headers = {};
 window.createToast = (message, color, duration = 3000) => {
@@ -38,12 +38,12 @@ window.runShellWithRoot = async (command) => {
   else if (script.includes("manage.sh' boot-on")) device.boot = true;
   else if (script.includes("manage.sh' boot-off")) device.boot = false;
   else if (script.includes("manage.sh' uninstall")) { device.installed = false; device.running = false; device.boot = false; }
-  else if (script.includes("manage.sh' diagnostics")) content = "Version: 2.1.0\nArchitecture: aarch64\nIdentity: uid=0(root)\n\nInterfaces:\nbr0  UP  192.168.1.1/24\nwg0  UP  10.0.0.2/24\n\nIPv6 policy rules:\n100: from all fwmark 0x2 lookup 101\n\nConfiguration check: passed";
+  else if (script.includes("manage.sh' diagnostics")) content = "Version: 2.1.1\nArchitecture: aarch64\nIdentity: uid=0(root)\n\nInterfaces:\nbr0  UP  192.168.1.1/24\nwg0  UP  10.0.0.2/24\n\nIPv6 policy rules:\n100: from all fwmark 0x2 lookup 101\n\nConfiguration check: passed";
   else if (script.includes("run.sh' start") || script.includes("run.sh' restart")) device.running = true;
   else if (script.includes("run.sh' stop")) device.running = false;
   else if (script.includes("show wg0")) content = `interface: wg0\n  public key: ${sampleKey}\n  private key: (hidden)\n\npeer: ${peerKey}\n  endpoint: 203.0.113.5:51820\n  allowed ips: 0.0.0.0/0\n  latest handshake: 20 seconds ago\n  transfer: 2.18 MiB received, 544 KiB sent`;
   else if (script.includes("tail -n")) content = "2026-09-30 12:00:00 wireguard started\n2026-09-30 12:00:01 applied DNS rules\n2026-09-30 12:00:01 LAN policy routing active";
-  else if (script.includes("installer '/data/local/tmp/")) { device.installed = true; device.version = "2.1.0"; content = "INSTALLED"; }
+  else if (script.includes("installer '/data/local/tmp/")) { device.installed = true; device.version = "2.1.1"; content = "INSTALLED"; }
   device.active--;
   return { success: code === 0, content: `${content}\n__KANO_WG_EXIT__${code}\n` };
 };

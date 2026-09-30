@@ -63,7 +63,7 @@ function endpoint(value) {
   return host.length <= 253 && host.split(".").every((label) => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label));
 }
 
-const interfaceKeys = new Set(["PrivateKey", "Address", "ListenPort", "DNS", "MTU", "NAT", "LANInterface"]);
+const interfaceKeys = new Set(["PrivateKey", "Address", "ListenPort", "DNS", "MTU", "NAT", "NAT6", "LANInterface"]);
 const peerKeys = new Set(["PublicKey", "PresharedKey", "AllowedIPs", "Endpoint", "PersistentKeepalive"]);
 const list = (value = "") => value.trim() ? value.split(",").map((item) => item.trim()) : [];
 
@@ -82,7 +82,7 @@ function validate(source) {
       sections.push(current);
       return;
     }
-    const match = /^([A-Za-z]+)\s*=\s*(.*)$/.exec(text);
+    const match = /^([A-Za-z][A-Za-z0-9]*)\s*=\s*(.*)$/.exec(text);
     if (!match || !current) { errors.push(`第 ${index + 1} 行：无法识别的配置格式。`); return; }
     const [, name, value] = match;
     const supported = current.type === "Interface" ? interfaceKeys : peerKeys;
@@ -108,7 +108,9 @@ function validate(source) {
   else if (Number(settings.ListenPort) > 65535) errors.push("ListenPort 不能超过 65535。");
   const minimumMTU = families.has(6) ? 1280 : 576;
   if (settings.MTU !== undefined && (!/^\d+$/.test(settings.MTU) || Number(settings.MTU) < minimumMTU || Number(settings.MTU) > 9000)) errors.push(`MTU 必须是 ${minimumMTU} 到 9000 的整数${families.has(6) ? "（IPv6 最低为 1280）" : ""}。`);
-  if (settings.NAT !== undefined && !/^(true|false|0|1|yes|no)$/i.test(settings.NAT)) errors.push("NAT 必须是 true 或 false。");
+  for (const name of ["NAT", "NAT6"]) {
+    if (settings[name] !== undefined && !/^(true|false|0|1|yes|no)$/i.test(settings[name])) errors.push(`${name} 必须是 true 或 false。`);
+  }
   if (settings.LANInterface !== undefined && !/^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,14}$/.test(settings.LANInterface)) errors.push("LANInterface 必须是有效的网卡名，最长 15 个字符。");
   if (!peers.length) errors.push("至少需要一个 [Peer]。");
   const seen = new Set();
@@ -150,6 +152,7 @@ function validate(source) {
     if (routeOwners.has(canonical)) errors.push(routeOwners.get(canonical) === index ? `Peer ${index + 1}：AllowedIPs 不能重复配置相同的网段。` : "不同 Peer 不能配置相同的 AllowedIPs 网段。");
     routeOwners.set(canonical, index);
   }));
+  if (/^(false|0|no)$/i.test(settings.NAT6 ?? settings.NAT ?? "true") && routes.some((route) => network(route)?.family === 6)) warnings.push("IPv6 NAT 已关闭：服务器对应 Peer 的 AllowedIPs 和回程路由必须包含 LAN IPv6 前缀。");
   if (!settings.LANInterface) warnings.push("LAN 网卡使用默认值 br0。");
   return { valid: errors.length === 0, errors: [...new Set(errors)], warnings, normalized: normalized.trim() + "\n", peers: peers.length };
 }

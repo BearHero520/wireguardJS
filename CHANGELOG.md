@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.1
+
+- Add an explicit NAT6 override so IPv4 NAT can remain enabled while IPv6 uses routed mode on kernels without an IPv6 NAT table.
+- Keep IPv6 DNS capability checks in routed mode; never silently bypass required firewall features.
+- Report bounded firewall probe errors and add read-only kernel/NAT diagnostics.
+- Warn that routed IPv6 requires server Peer AllowedIPs, return routes, and a usable IPv6 egress for the LAN prefix.
+
 ## 2.1.0
 
 - Support IPv4, IPv6, and mixed Address / AllowedIPs configurations, including ::/0 and IPv6-only tunnels.

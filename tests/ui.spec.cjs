@@ -63,6 +63,18 @@ test("old device resources must be upgraded before saving new configurations", a
   await expect(page.locator("#wg-feedback")).toHaveText(/安装 \/ 升级/);
   expect(await page.evaluate(() => previewDevice.uploaded)).toBe("");
 });
+test("NAT6 routed mode warns about server routes and preserves IPv4 NAT on save", async ({ page }) => {
+  const config = await page.locator(editor).inputValue();
+  const routed = config.replace("Address = 10.0.0.2/24", "Address = 10.6.0.2/32, fd00:6::2/128")
+    .replace("NAT = true", "NAT = true\nNAT6 = false")
+    .replace("AllowedIPs = 0.0.0.0/0", "AllowedIPs = 0.0.0.0/0, ::/0");
+  await page.locator(editor).fill(routed);
+  await page.locator('[data-action="validate"]').click();
+  await expect(page.locator("#wg-feedback")).toHaveText(/AllowedIPs.*LAN IPv6/);
+  await page.locator('[data-action="save"]').click();
+  await expect(page.locator("#wg-feedback")).toHaveText(/配置已保存/);
+  expect(await page.evaluate(() => previewDevice.config)).toContain("NAT = true\nNAT6 = false");
+});
 for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
   test(`layout and diagnostics at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);

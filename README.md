@@ -33,7 +33,7 @@
 - Android ARM64 / AArch64。当前 `resources/bin/wg` 来自原始脚本内置包，未重新编译。
 - root 权限，内核支持 `ip link add wg0 type wireguard`。本插件不安装内核模块或 userspace WireGuard 后端。
 - `sh`、`ip`、`iptables`、`awk`、`tar`、`base64`、`sha256sum` 及常见 Shell 工具；部分操作支持 toybox / busybox 回退。
-- IPv6 隧道还需要内核 IPv6、IPv6 策略路由和 `ip6tables` 的 filter / mangle 表；启用 NAT 或 IPv6 DNS 时还需要 IPv6 nat 表及对应 MASQUERADE / DNAT 扩展。`NAT=false` 配合 DNS 还需要 owner 匹配扩展。纯 IPv4 配置不要求 `ip6tables`，纯 IPv6 配置不要求 `iptables`。
+- IPv6 隧道还需要内核 IPv6、IPv6 策略路由和 `ip6tables` 的 filter / mangle 表；启用 IPv6 NAT 或 IPv6 DNS 时还需要 IPv6 nat 表及对应 MASQUERADE / DNAT 扩展。关闭某地址族的常规 NAT 后仍配置该族 DNS，还需要 owner 匹配扩展。纯 IPv4 配置不要求 `ip6tables`，纯 IPv6 配置不要求 `iptables`。
 - 原管理页面提供 `.functions-container`、`runShellWithRoot`、`createToast`、`KANO_baseURL`、`common_headers` 和 `/upload_img` 接口。`collapseGen` 可选。
 - 上传接口返回 `/data/data/com.minikano.f50_sms/files` 下的相对路径，这与原插件约定一致。
 
@@ -51,6 +51,7 @@ IPv4 示例见 [`resources/wg0.conf`](resources/wg0.conf)，双栈示例见 [`ex
 | `DNS` | 每个地址族最多一个 DNS 地址，各自必须被同族 AllowedIPs 覆盖；省略或留空则不接管 DNS |
 | `LANInterface` | LAN 网卡名，默认 `br0`，最长 15 个字符 |
 | `NAT` | 默认开启，分别添加 IPv4 NAT / IPv6 NAT66；`false` 关闭 LAN 常规源 NAT，需要服务端具备到 LAN 网段的返回路由 |
+| `NAT6` | 可选，仅覆盖 IPv6 的常规源 NAT；省略则继承 `NAT`。例如 `NAT=true`、`NAT6=false` 保留 IPv4 NAT、IPv6 使用路由模式 |
 | `MTU` | 纯 IPv4 最低 576；含 IPv6 地址时最低 1280、未指定则使用 1420；最大 9000，实际取值受路径限制 |
 
 不执行 `PreUp` / `PostUp` / `PreDown` / `PostDown` 等钩子；`Table`、`SaveConfig` 等 wg-quick 专用设置也不受支持。保存时会明确拒绝这些字段。
@@ -59,9 +60,25 @@ IPv4 示例见 [`resources/wg0.conf`](resources/wg0.conf)，双栈示例见 [`ex
 
 DNS 配置通过独立的打标和 DNAT 链接管相应地址族的普通 TCP / UDP 53 流量，包含 LAN 和网关自身的查询。IPv4 DNS 不会重定向 IPv6 DNS，反之亦然。使用 UDP 53 作为 WireGuard Endpoint 端口时，同族 DNS 接管会与隧道传输冲突，应省略 DNS；域名 Endpoint 无法预先确定地址族，端口 53 与任何 DNS 接管配置不允许同时使用。
 
-`NAT=false` 时，本机被重定向的 DNS 仍单独转换源地址到隧道地址，避免携带外网源地址而被远端 Peer 拒绝；此规则不对普通 LAN 转发包做源 NAT。完全不需要 NAT 时，同时省略 DNS 配置。
+某地址族的常规源 NAT 关闭时，本机被重定向的同族 DNS 仍单独转换源地址到隧道地址，避免携带外网源地址而被远端 Peer 拒绝；此规则不对普通 LAN 转发包做源 NAT。因此 `NAT6=false` 配合 IPv6 DNS 仍需要 IPv6 NAT 表；完全不需要 NAT 时，同时省略 DNS 配置。
 
-插件不提供 DHCPv6、路由通告（RA）或前缀委派服务。LAN 客户端需要已有 IPv6 地址和 IPv6 网关。服务端也必须将客户端的隧道 IPv6 地址加入对应 Peer 的 AllowedIPs，并提供 IPv6 出口；`NAT=false` 时还需配置到 LAN IPv6 前缀的返回路由。配置通过校验不等于服务端已经满足这些条件。
+插件不提供 DHCPv6、路由通告（RA）或前缀委派服务。LAN 客户端需要已有 IPv6 地址和 IPv6 网关。服务端也必须将客户端的隧道 IPv6 地址加入对应 Peer 的 AllowedIPs，并提供 IPv6 出口；关闭 IPv6 NAT 时还需将 LAN IPv6 前缀加入对应 Peer 的 AllowedIPs，并配置返回路由。配置通过校验不等于服务端已经满足这些条件。
+
+### 内核没有 IPv6 NAT 表
+
+在确认服务端具备路由和出口条件后，可在 `[Interface]` 中显式设置：
+
+```ini
+NAT = true
+NAT6 = false
+DNS = 10.6.0.1
+```
+
+该组合保留 IPv4 NAT，IPv6 仅做路由转发，DNS 仅使用 IPv4。`Address` 和 `AllowedIPs` 中的 IPv6 项保持不变。不要用全局 `NAT=false` 替代，除非 IPv4 服务端也配置了 LAN 回程路由。
+
+服务端对应 Peer 必须允许客户端的隧道 IPv6 地址和实际 LAN IPv6 前缀，并将该前缀路由回此 Peer。服务端还必须为这些源地址提供有效 IPv6 出口：另一个运营商分配的前缀或 ULA 不一定能直接经服务端 WAN 出口上网，可能需要服务端源地址转换或真正可路由的前缀。LAN 动态前缀变化后，也需同步更新服务端。插件不会静默绕过能力检查，也不会自动修改服务器。
+
+诊断页会显示内核 `CONFIG_IP6_NF_NAT`、`CONFIG_NF_TABLES`（设备允许读取时）、IPv6 防火墙版本及 NAT 表查询的原始错误。仅一个模糊的 NAT 报错不足以区分内核缺失、权限或防火墙锁问题。
 
 插件使用接口 `wg0`，分别在 IPv4 / IPv6 中使用策略表 `101`、规则优先级 `100`、标记 `2`。请勿让其他服务同时管理这些资源。启动前检查策略表和规则冲突；停止时只清理本插件接口的表内路由。IPv4 转发保持原有行为，启用后不关闭；IPv6 全局转发若原本关闭，会先把原为 `1` 的相关 `accept_ra` 调整为 `2`，停止时按快照恢复。原本已启用 IPv6 全局转发的设备不重复改写该参数。
 
@@ -124,8 +141,8 @@ Shell 测试在隔离目录中使用模拟网络命令，不改变测试主机�
 GitHub Actions 在推送和 PR 时运行构建与测试。推送 `v*` 标签后发布 `wireguard.js`、资源包和清单到 Releases。
 
 ```sh
-git tag v2.1.0
-git push origin v2.1.0
+git tag v2.1.1
+git push origin v2.1.1
 ```
 
 版本号取自 `package.json`。二进制来源及许可状态见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
